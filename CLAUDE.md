@@ -17,10 +17,10 @@ Python ETL pipeline to download, clean, interpolate, and export Brazilian daily 
 
 **Limitação conhecida da API B3:** `GetDownloadFile` retorna apenas as ~25 datas mais recentes. Não há acesso histórico via esta API. Os dados acumulam dia a dia pelo Actions.
 
-**Em correção — função COPOM:**
-- `src/copom.py`: datas das reuniões devem ser o **primeiro dia útil APÓS a decisão** (quando a nova Selic entra em vigor), não o dia da decisão. Correção pendente de commit.
-- Datas 2026 corretas (decisão quarta → efetivo quinta): Jan/29, Mar/19, Abr/30, Jun/18, Ago/06, Set/17, Nov/05, Dez/10
-- 2027 removido (sem calendário oficial publicado)
+**Função COPOM corrigida e commitada:**
+- `src/copom.py`: `COPOM_MEETINGS` usa o **primeiro dia útil APÓS a decisão** (quando a nova Selic entra em vigor) para 2024, 2025 e 2026.
+- Datas 2026: Jan/29, Mar/19, Abr/30, Jun/18, Ago/06, Set/17, Nov/05, Dez/10
+- 2027 ausente (sem calendário oficial BCB publicado)
 
 ## Commands
 
@@ -142,5 +142,4 @@ Usa CubicSpline `bc_type="not-a-knot"` com 300 pontos densos para renderização
 ## Próximos passos
 
 - [ ] Fazer deploy no Streamlit Cloud (`share.streamlit.io` → repo `queirozloc/taxas-referenciais-b3` → `dashboard/app.py`)
-- [ ] Continuar corrigindo/validando a função COPOM com o usuário
 - [ ] Atualizar `COPOM_MEETINGS` com calendário 2027 quando BCB publicar (nov/2026)
