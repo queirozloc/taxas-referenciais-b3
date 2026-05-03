@@ -16,21 +16,23 @@ import pandas as pd
 
 from src.brazil_calendar import count_business_days
 
-# COPOM decision dates (second day of each meeting, when the rate is announced).
-# Source: BCB calendar. Verify/update as new calendars are published.
+# First business day AFTER each COPOM decision — the day the new Selic rate
+# takes effect and the DI curve shows a kink. All are Thursdays (or Friday
+# when Thursday is a holiday, as in Jun/2025 where Corpus Christi falls on
+# the 19th). Source: BCB official calendar.
 COPOM_MEETINGS: list[date] = [
     # 2024
-    date(2024, 1, 31), date(2024, 3, 20), date(2024, 5, 8),
-    date(2024, 6, 19), date(2024, 7, 31), date(2024, 9, 18),
-    date(2024, 11, 6), date(2024, 12, 11),
-    # 2025
-    date(2025, 1, 29), date(2025, 3, 19), date(2025, 5, 7),
-    date(2025, 6, 18), date(2025, 7, 30), date(2025, 9, 17),
-    date(2025, 11, 5), date(2025, 12, 10),
+    date(2024, 2, 1),  date(2024, 3, 21), date(2024, 5, 9),
+    date(2024, 6, 20), date(2024, 8, 1),  date(2024, 9, 19),
+    date(2024, 11, 7), date(2024, 12, 12),
+    # 2025 — Jun 19 = Corpus Christi → effective Jun 20
+    date(2025, 1, 30), date(2025, 3, 20), date(2025, 5, 8),
+    date(2025, 6, 20), date(2025, 7, 31), date(2025, 9, 18),
+    date(2025, 11, 6), date(2025, 12, 11),
     # 2026 — fonte: BCB calendário oficial
-    date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29),
-    date(2026, 6, 17), date(2026, 8, 5), date(2026, 9, 16),
-    date(2026, 11, 4), date(2026, 12, 9),
+    date(2026, 1, 29), date(2026, 3, 19), date(2026, 4, 30),
+    date(2026, 6, 18), date(2026, 8, 6),  date(2026, 9, 17),
+    date(2026, 11, 5), date(2026, 12, 10),
 ]
 
 

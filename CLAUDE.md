@@ -4,11 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Python ETL pipeline to download, clean, interpolate, and export Brazilian daily interest rate curves (Taxas Referenciais B3). Output is a formatted Excel workbook with two sheets: **DI Curve** and **Cupom Cambial Limpo**.
+Python ETL pipeline to download, clean, interpolate, and export Brazilian daily interest rate curves (Taxas Referenciais B3). Includes a Streamlit dashboard with Yield Curve, Download, COPOM study (FFC), and FRA views, plus GitHub Actions for daily automated collection.
 
-## Status
+## Status (atualizado 2026-05-03)
 
-O script de download está concluído e funcionando. O próximo passo é configurar o **GitHub Actions** para automatizar a coleta diária e disponibilizar o Excel gerado (ex: como artefato de workflow ou commit automático no repositório).
+**Concluído e funcionando:**
+- ETL pipeline (download → parse → spline → Excel/Parquet)
+- Dashboard Streamlit (`streamlit run dashboard/app.py`) com 4 seções
+- GitHub Actions: cron `0 8 * * 1-5` commitando `data/*.parquet` diariamente
+- Repositório público: `github.com/queirozloc/taxas-referenciais-b3`
+- Dados disponíveis: 2026-03-27 a 2026-04-30 (23 datas — limite da API B3)
+
+**Limitação conhecida da API B3:** `GetDownloadFile` retorna apenas as ~25 datas mais recentes. Não há acesso histórico via esta API. Os dados acumulam dia a dia pelo Actions.
+
+**Em correção — função COPOM:**
+- `src/copom.py`: datas das reuniões devem ser o **primeiro dia útil APÓS a decisão** (quando a nova Selic entra em vigor), não o dia da decisão. Correção pendente de commit.
+- Datas 2026 corretas (decisão quarta → efetivo quinta): Jan/29, Mar/19, Abr/30, Jun/18, Ago/06, Set/17, Nov/05, Dez/10
+- 2027 removido (sem calendário oficial publicado)
 
 ## Commands
 
@@ -16,150 +28,119 @@ O script de download está concluído e funcionando. O próximo passo é configu
 # Install dependencies
 pip install -r requirements.txt
 
-# Run for today
+# Run for today → Excel
 python main.py
 
-# Run for a single date
+# Run for a single date → Excel
 python main.py 2026-04-17
 
-# Run for a date range
+# Run for a date range → Excel
 python main.py 2026-03-16 2026-04-17
+
+# Run with --store → saves to data/*.parquet (4 files)
+python main.py --store
+python main.py 2026-04-17 --store
+
+# Run dashboard locally
+streamlit run dashboard/app.py
 ```
 
-Output files land in `output/taxas_b3_<start>_<end>.xlsx`. Weekends and Brazilian holidays (where B3 returns empty data) are skipped automatically.
+Output Excel: `output/taxas_b3_<start>_<end>.xlsx`. Weekends and Brazilian holidays are skipped automatically.
 
 ## Architecture
 
-Linear ETL pipeline, one module per stage:
-
 ```
-main.py
- ├── src/download.py    → fetch base64-encoded CSV from B3 API
- ├── src/clean.py       → parse semicolon-delimited CSV into DataFrame
- ├── src/interpolate.py → cubic spline to standard tenors (scipy)
- └── src/export.py      → formatted .xlsx with two sheets (openpyxl)
+main.py                        (--store flag: Parquet vs Excel)
+├── src/download.py            → fetch base64-encoded CSV from B3 API
+├── src/clean.py               → parse semicolon-delimited CSV into DataFrame
+├── src/interpolate.py         → cubic spline to standard tenors (scipy)
+├── src/export.py              → formatted .xlsx (str | BytesIO)
+├── src/store.py               → upsert_parquet / load_parquet
+├── src/brazil_calendar.py     → feriados nacionais 2024-2026 + count_business_days
+├── src/copom.py               → COPOM_MEETINGS + FFC methodology
+└── src/config.py              → tenor grids, OUTPUT_DIR, DATA_DIR
+
+dashboard/
+├── app.py                     → Streamlit entry point (4 sections via sidebar)
+├── data.py                    → load_di/cupom/di_raw com @st.cache_data
+├── charts.py                  → Plotly figures (spline curve, COPOM bars, FRA lines)
+├── yield_curve_view.py        → sobreposição de curvas por data
+├── download_view.py           → date range picker + st.download_button → Excel
+├── copom_view.py              → snapshot FFC + evolução + download CSV/Excel
+└── fra_view.py                → FRA 1y1y (T1=252, T2=504) e FRA 5y5y (T1=1260, T2=2520)
+
+data/
+├── di.parquet                 → [date, tenor, rate] interpolados
+├── di_raw.parquet             → [date, tenor_bd, tenor_cd, rate] pontos brutos
+├── cupom.parquet
+└── cupom_raw.parquet
+
+.github/workflows/collect.yml  → cron 0 8 * * 1-5 (5h BRT)
 ```
 
-Shared constants (tenor grids, output dir) live in `src/config.py`.
+## Data flow
 
-### Data flow
-
-`fetch_csv(date, curve)` → raw CSV string (base64-decoded, latin-1)  
-`parse_csv(csv_text, date)` → DataFrame `[date, tenor_bd, tenor_cd, rate]`  
-`interpolate_curve(df, curve)` → DataFrame `[date, tenor, rate]` at standard tenors  
+`fetch_csv(date, curve)` → raw CSV string (base64-decoded, latin-1)
+`parse_csv(csv_text, date)` → DataFrame `[date, tenor_bd, tenor_cd, rate]`
+`interpolate_curve(df, curve)` → DataFrame `[date, tenor, rate]` at standard tenors
 `export_to_excel(di_df, cupom_df, path)` → `.xlsx`
 
-### B3 API
+## B3 API
 
 - **Base URL:** `https://sistemaswebb3-derivativos.b3.com.br/referenceRatesProxy/Search/`
-- **Endpoint:** `GetDownloadFile/{base64(json_payload)}` — returns a base64-encoded, latin-1, semicolon-delimited CSV
+- **Endpoint:** `GetDownloadFile/{base64(json_payload)}` — returns base64-encoded, latin-1, semicolon-delimited CSV
 - **Payload fields:** `language`, `id` (product code), `date` (YYYY-MM-DD), `pageNumber`, `pageSize`
-- **Required headers:** `Origin` e `Referer` devem apontar para `sistemaswebb3-derivativos.b3.com.br`
-- **Curve IDs:** `PRE` = DI curve, `DOC` = Cupom Cambial Limpo (ver `src/download.CURVE_IDS`)
-- **`GetDate/{base64}`** retorna as ~20 datas mais recentes com dados disponíveis
-- **`GetList/`** ignora o parâmetro de data e sempre retorna o dado mais recente — usar apenas `GetDownloadFile` para dados históricos
+- **Required headers:** `Origin` e `Referer` → `sistemaswebb3-derivativos.b3.com.br`
+- **Curve IDs:** `PRE` = DI curve, `DOC` = Cupom Cambial Limpo
+- **`GetDate/{base64}`** retorna as ~20 datas mais recentes disponíveis
+- **`GetList/`** ignora data, retorna sempre o mais recente — não usar para histórico
 
-### CSV format (after decoding)
-
-```
-Descrição da Taxa;Dias Úteis;Dias Corridos;Preço/Taxa
-DI x pré;1;1;14,65
-DI x pré;4;7;14,63
-...
-```
-
-Colunas usadas: 1 (`tenor_bd`), 2 (`tenor_cd`), 3 (`rate`).
-
-### Tenor grids
-
-Definidos em `src/config.py`:
+## Tenor grids (`src/config.py`)
 
 - **DI Curve** — dias úteis (252/ano): `[1, 63, 126, 189, 252, 378, 504, 630, 756, 1008, 1260]`
+  - No gráfico: tenor=1 excluído (overnight, distorce a curva visual)
 - **Cupom Cambial Limpo** — dias corridos (360/ano): `[90, 180, 270, 360, 540, 720, 900, 1080, 1440, 1800, 2520, 2880, 3600]`
 
-### Observações conhecidas
+## Metodologia COPOM — Flat-Forward Copom (FFC)
 
-- A B3 ocasionalmente publica a mesma curva em dois dias consecutivos (ex: véspera de feriado). Isso é comportamento da fonte, não bug no código.
-- Feriados nacionais retornam resposta vazia e são pulados automaticamente via tratamento de exceção em `main.py`.
+Baseada em Bristotti (2018) / Carreira & Brostowicz (2016). O CDI/Selic só muda em reuniões do COPOM, logo a taxa forward é constante entre reuniões consecutivas. Usa `di_raw.parquet` (~277 pontos brutos/dia) como nós, **não** os vértices do spline.
 
-## Próximos Passos — Dashboard + Automação
-
-O plano completo está em `C:\Users\queir\.claude\plans\agora-que-temos-o-sprightly-pretzel.md`.
-
-### Resumo do que precisa ser construído
-
-**Novos arquivos:**
-- `requirements.txt` — adicionar `plotly`, `pyarrow`, `streamlit` (já adicionado, falta instalar)
-- `src/store.py` — `upsert_parquet(df, curve)` e `load_parquet(curve)`: persistência em `data/*.parquet`
-- `src/brazil_calendar.py` — feriados nacionais 2024–2027 + `count_business_days(start, end)`
-- `src/copom.py` — calendário COPOM 2024–2027 + metodologia **Flat-Forward Copom (FFC)**
-- `dashboard/app.py` — entry point Streamlit (sidebar com 4 seções)
-- `dashboard/data.py` — `load_di()`, `load_cupom()`, `load_di_raw()` com `@st.cache_data`
-- `dashboard/charts.py` — figuras Plotly (`plot_yield_curve_overlay`, `plot_copom_*`)
-- `dashboard/download_view.py` — date range picker + `st.download_button` gerando Excel via BytesIO
-- `dashboard/copom_view.py` — snapshot + evolução da precificação do COPOM
-- `dashboard/fra_view.py` — FRA 1y1y e FRA 5y5y histórico
-- `.github/workflows/collect.yml` — cron `0 8 * * 1-5` (8h UTC = 5h BRT)
-- `.gitignore`, `.streamlit/config.toml`, `data/.gitkeep`
-
-**Arquivos a modificar:**
-- `main.py` — flag `--store`: salva em Parquet em vez de Excel; coleta também frames brutos
-- `src/config.py` — adicionar `DATA_DIR = "data"`
-- `src/export.py` — `output_path` aceita `str | io.BytesIO`
-
-### Metodologia COPOM (Flat-Forward Copom — FFC)
-
-Baseada em Bristotti (2018) / Carreira & Brostowicz (2016). O CDI/Selic só muda em reuniões do COPOM, logo a taxa forward é constante entre reuniões consecutivas.
+**Convenção de data:** `COPOM_MEETINGS` contém o **primeiro dia útil após a decisão** (quando a nova Selic entra em vigor) — sempre quinta-feira, ou sexta se quinta for feriado.
 
 **Fórmulas (dias úteis, base 252):**
 ```
-DF(T)          = 1 / (1 + r(T)/100)^(T/252)
-f(T1, T2)      = [DF(T1)/DF(T2)]^(252/(T2-T1)) − 1    # forward entre T1 e T2
-DF(τ) interp.  = DF(T1) · (1+f)^(−(τ−T1)/252)         # flat-forward entre nós
+DF(T)     = 1 / (1 + r(T)/100)^(T/252)
+f(T1, T2) = [DF(T1)/DF(T2)]^(252/(T2-T1)) − 1
+DF(τ)     = DF(T1) · (1+f)^(−(τ−T1)/252)   # flat-forward entre nós
 ```
 
-Usar `di_raw.parquet` (pontos brutos ~277/dia) como nós da interpolação, **não** os vértices do spline.
+**Snapshot:** taxa implícita por reunião + coluna "Variação (bps)" vs reunião anterior (âncora: DI1 overnight como proxy do Selic atual).
 
-**Taxa implícita para reunião COPOM_i:**  
-= forward entre a reunião anterior (COPOM_{i-1}) e COPOM_i, calculado via DF interpolado.
+**Evolução:** série histórica da taxa implícita para uma reunião específica. Download em CSV e Excel disponíveis.
 
-### FRA
+## FRA
 
-Calculado diretamente dos vértices interpolados em `di.parquet`:
+Calculado dos vértices interpolados em `di.parquet`:
 ```
-F(T) = (1 + r(T)/100)^(T/252)
-FRA(T1, T2) = (F(T2)/F(T1))^(252/(T2-T1)) − 1
+F(T)         = (1 + r(T)/100)^(T/252)
+FRA(T1, T2)  = (F(T2)/F(T1))^(252/(T2-T1)) − 1
 ```
-- **FRA 1y1y**: T1=252, T2=504
-- **FRA 5y5y**: T1=1260, T2=2520
+- **FRA 1y1y**: T1=252, T2=504 (taxa de 1 ano daqui a 1 ano)
+- **FRA 5y5y**: T1=1260, T2=2520 (taxa de 5 anos daqui a 5 anos)
 
-### Estrutura de dados
+## Dashboard — Yield Curve
 
-```
-data/
- ├── di.parquet        # [date, tenor, rate] — vértices interpolados DI
- ├── di_raw.parquet    # [date, tenor_bd, tenor_cd, rate] — pontos brutos DI
- ├── cupom.parquet     # [date, tenor, rate] — vértices interpolados Cupom
- └── cupom_raw.parquet # [date, tenor_bd, tenor_cd, rate] — pontos brutos Cupom
-```
+Usa CubicSpline `bc_type="not-a-knot"` com 300 pontos densos para renderização suave — mesma matemática do pipeline. Tenor=1 excluído do gráfico. Suporta sobreposição de múltiplas datas (última, 1 semana, 1 mês, 1 ano, custom). Tabela com valores exatos abaixo do gráfico.
 
-### GitHub Actions
+## Observações conhecidas
 
-```yaml
-on:
-  schedule:
-    - cron: "0 8 * * 1-5"   # 8h UTC = 5h BRT, seg–sex
-  workflow_dispatch:
-permissions:
-  contents: write
-```
+- A B3 API retorna apenas as ~25 datas mais recentes. Histórico só cresce via Actions diário.
+- A B3 ocasionalmente publica a mesma curva em dois dias consecutivos (véspera de feriado). Comportamento da fonte, não bug.
+- Feriados nacionais retornam resposta vazia e são pulados automaticamente.
+- Corpus Christi 2025 (19/06) cai no dia após a decisão COPOM de jun/25 → data efetiva = 20/06.
 
-Usa `stefanzweifel/git-auto-commit-action@v5` para commitar os Parquets atualizados. No-op automático em feriados.
+## Próximos passos
 
-### Streamlit Cloud
-
-- Repositório GitHub já existe e é público
-- Entry point: `dashboard/app.py`
-- Nenhuma variável de ambiente necessária
-- Redeploya automaticamente a cada push (i.e., diariamente pelo Actions)
-- Primeiro passo: backfill local `python main.py 2024-01-01 <hoje> --store` antes de subir
+- [ ] Fazer deploy no Streamlit Cloud (`share.streamlit.io` → repo `queirozloc/taxas-referenciais-b3` → `dashboard/app.py`)
+- [ ] Continuar corrigindo/validando a função COPOM com o usuário
+- [ ] Atualizar `COPOM_MEETINGS` com calendário 2027 quando BCB publicar (nov/2026)
