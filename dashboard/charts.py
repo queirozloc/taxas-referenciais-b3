@@ -18,6 +18,8 @@ def plot_yield_curve_overlay(
             y=df["rate"],
             mode="lines+markers",
             name=label,
+            line=dict(shape="spline", smoothing=1.3),
+            marker=dict(size=5),
             hovertemplate="%{x:.2f} anos: %{y:.4f}%<extra></extra>",
         ))
     fig.update_layout(
