@@ -31,10 +31,6 @@ COPOM_MEETINGS: list[date] = [
     date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29),
     date(2026, 6, 17), date(2026, 8, 5), date(2026, 9, 16),
     date(2026, 11, 4), date(2026, 12, 9),
-    # 2027 — estimativa (BCB publica o calendário em nov/2026)
-    date(2027, 1, 27), date(2027, 3, 17), date(2027, 5, 5),
-    date(2027, 6, 16), date(2027, 7, 28), date(2027, 9, 15),
-    date(2027, 11, 3), date(2027, 12, 8),
 ]
 
 

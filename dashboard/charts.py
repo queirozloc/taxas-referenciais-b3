@@ -1,27 +1,54 @@
 from __future__ import annotations
 
-from datetime import date
-
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from scipy.interpolate import CubicSpline
 
 
 def plot_yield_curve_overlay(
     curves: dict[str, pd.DataFrame],
     title: str = "Yield Curve",
     year_basis: int = 252,
+    n_smooth: int = 300,
 ) -> go.Figure:
+    """
+    Render each curve as a smooth cubic spline (same bc_type="not-a-knot" used
+    in the pipeline). Tenor=1 (overnight) is excluded — the yield curve starts
+    at the first liquid point (tenor 63 BD / 90 CD).
+    """
     fig = go.Figure()
     for label, df in curves.items():
+        df = df[df["tenor"] > 1].sort_values("tenor").reset_index(drop=True)
+        if len(df) < 2:
+            continue
+
+        x = df["tenor"].values.astype(float)
+        y = df["rate"].values.astype(float)
+        cs = CubicSpline(x, y, bc_type="not-a-knot")
+        x_dense = np.linspace(x[0], x[-1], n_smooth)
+        y_dense = cs(x_dense)
+
+        # smooth line
         fig.add_trace(go.Scatter(
-            x=df["tenor"] / year_basis,
-            y=df["rate"],
-            mode="lines+markers",
+            x=x_dense / year_basis,
+            y=y_dense,
+            mode="lines",
             name=label,
-            line=dict(shape="spline", smoothing=1.3),
-            marker=dict(size=5),
+            line=dict(width=2),
             hovertemplate="%{x:.2f} anos: %{y:.4f}%<extra></extra>",
         ))
+        # original knot markers (one per tenor, for reference)
+        fig.add_trace(go.Scatter(
+            x=x / year_basis,
+            y=y,
+            mode="markers",
+            name=label,
+            marker=dict(size=6),
+            showlegend=False,
+            hovertemplate="%{x:.2f} anos: %{y:.4f}%<extra></extra>",
+        ))
+
     fig.update_layout(
         title=title,
         xaxis_title="Tenor (anos)",
