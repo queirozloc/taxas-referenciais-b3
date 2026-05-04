@@ -14,6 +14,7 @@ Python ETL pipeline to download, clean, interpolate, and export Brazilian daily 
 - GitHub Actions: cron `0 8 * * 1-5` commitando `data/*.parquet` diariamente
 - Repositório público: `github.com/queirozloc/taxas-referenciais-b3`
 - Dados disponíveis: 2026-03-27 a 2026-04-30 (23 datas — limite da API B3)
+- **Deploy Streamlit Cloud concluído** — dashboard público, rederploy automático a cada push do Actions
 
 **Limitação conhecida da API B3:** `GetDownloadFile` retorna apenas as ~25 datas mais recentes. Não há acesso histórico via esta API. Os dados acumulam dia a dia pelo Actions.
 
@@ -21,6 +22,10 @@ Python ETL pipeline to download, clean, interpolate, and export Brazilian daily 
 - `src/copom.py`: `COPOM_MEETINGS` usa o **primeiro dia útil APÓS a decisão** (quando a nova Selic entra em vigor) para 2024, 2025 e 2026.
 - Datas 2026: Jan/29, Mar/19, Abr/30, Jun/18, Ago/06, Set/17, Nov/05, Dez/10
 - 2027 ausente (sem calendário oficial BCB publicado)
+
+**Pendente — ajustes nas views COPOM e FRA:**
+- As seções COPOM e FRA do dashboard precisam ser revisadas e ajustadas (problemas identificados pelo usuário, detalhes a levantar na próxima sessão).
+- Iniciar a próxima sessão pedindo ao usuário que descreva o que está errado em cada view.
 
 ## Commands
 
@@ -139,7 +144,19 @@ Usa CubicSpline `bc_type="not-a-knot"` com 300 pontos densos para renderização
 - Feriados nacionais retornam resposta vazia e são pulados automaticamente.
 - Corpus Christi 2025 (19/06) cai no dia após a decisão COPOM de jun/25 → data efetiva = 20/06.
 
+## Observação operacional — Windows
+
+Fechar a janela CMD no Windows **não encerra** o processo Streamlit. Ele continua rodando em background e serve código antigo. Se o dashboard mostrar dados desatualizados após reiniciar:
+```powershell
+# Verificar processos na porta 8501
+netstat -ano | findstr :8501
+# Matar pelo PID (substituir XXXX)
+Stop-Process -Id XXXX -Force
+```
+
 ## Próximos passos
 
-- [ ] Fazer deploy no Streamlit Cloud (`share.streamlit.io` → repo `queirozloc/taxas-referenciais-b3` → `dashboard/app.py`)
+- [x] Fazer deploy no Streamlit Cloud — concluído em 2026-05-03
+- [ ] Revisar e corrigir view **COPOM** (ajustes a detalhar com o usuário)
+- [ ] Revisar e corrigir view **FRA** (ajustes a detalhar com o usuário)
 - [ ] Atualizar `COPOM_MEETINGS` com calendário 2027 quando BCB publicar (nov/2026)
